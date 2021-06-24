@@ -2,10 +2,15 @@ const path = require('path')
 const fs = require('fs').promises
 const { builder, Build } = require('mineflayer-builder')
 const { Schematic } = require('prismarine-schematic')
-const { pathfinder } = require('../mineflayer-pathfinder')
+const { pathfinder, goals } = require('../mineflayer-pathfinder')
 const mineflayer = require('mineflayer')
 const mineflayerViewer = require('prismarine-viewer').mineflayer
+const mcData = require('minecraft-data')
+const Iterators = require('prismarine-world').iterators
+const { Vec3 } = require('vec3')
 
+let OBSIDIAN_ITEM, ECHEST_ITEM
+let OSIDIAN_BLOCK, ECHEST_BLOCK
 
 const bot = mineflayer.createBot({
   host: process.argv[2] || 'localhost',
@@ -21,6 +26,13 @@ function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
 bot.once('spawn', async () => {
   mineflayerViewer(bot, { port: 3000 })
+
+  mData = mcData(bot.version)
+
+  OBSIDIAN_ITEM = mData.itemsByName['obsidian']
+  ECHEST_ITEM = mData.itemsByName['ender_chest']
+  ECHEST_BLOCK = mData.blocksByName['ender_chest']
+  OSIDIAN_BLOCK = mData.blocksByName['obsidian']
 
   bot.on('path_update', (r) => {
     const path = [bot.entity.position.offset(0, 0.5, 0)]
@@ -69,7 +81,83 @@ async function build (name) {
 
 async function noMaterial (item, resolve, reject) {
   console.info('Building interrupted missing', item?.name)
-  reject()
+  try {
+    await checkInv()
+    resolve()
+  } catch (e) {
+    console.error(e)
+    reject()
+  }
+}
+
+async function findEmptyValidPos() {
+  const iter = new Iterators.OctahedronIterator(bot.entity.position.offset(0, -1, 0), 5)
+  let pos = iter.next()
+  while (pos) {
+    if (bot.entity.position.floored().manhattanDistanceTo(pos) > 1) {
+      if (bot.blockAt(pos).boundingBox === 'block' && bot.blockAt(pos.offset(0, 1, 0)).boundingBox === 'empty') {
+        return bot.blockAt(pos.offset(0, 1, 0))
+      }
+    }
+    pos = iter.next()
+  }
+  return null
+}
+
+async function checkInv() {
+  console.info('Checking inventory')
+  const obsidianInInv = bot.inventory.findInventoryItem(OBSIDIAN_ITEM.id, null)
+  console.info('Obsidian in inventory', obsidianInInv)
+  if (!obsidianInInv) {
+    console.info('Mining obsidian')
+    const eChestCount = bot.inventory.countRange(bot.inventory.inventoryStart, bot.inventory.inventoryEnd, ECHEST_ITEM.id)
+    if (eChestCount < 2) {
+      throw Error('No echests left')
+    }
+    while (bot.inventory.emptySlotCount() > 0) {
+      if (bot.inventory.count(ECHEST_ITEM.id) < 2) {
+        throw Error('No e chests left')
+      }
+      try {
+        let eChestBlock = bot.findBlock({
+          matching: ECHEST_BLOCK.id,
+          maxDistance: 5
+        })
+        if (!eChestBlock) {
+          console.info('No echest near by placing one')
+          let eBlockPos = await findEmptyValidPos()
+          if (eBlockPos) {
+            console.info('found', eBlockPos.position)
+            const goal = new goals.GoalPlaceBlock(eBlockPos.position, bot.world, { range: 2 })
+            if (!goal.isEnd(bot.entity.position.floored())) {
+              await bot.pathfinder.goto(goal)
+            }
+            console.info('Equiping e chest', bot.inventory.findInventoryItem(ECHEST_ITEM.id))
+            await bot.equip(bot.inventory.findInventoryItem(ECHEST_ITEM.id), 'hand')
+            console.info('placing e chest')
+            await bot.placeBlock(bot.blockAt(eBlockPos.position.offset(0, -1, 0)), new Vec3(0, 1, 0))
+            eChestBlock = bot.blockAt(eBlockPos.position)
+            if (!eChestBlock) {
+              throw Error('Block vanished')
+            }
+          } else {
+            throw Error('No enderchest placement position found')
+          }
+        }
+        console.info('digging e chest')
+        let goalTo = new goals.GoalGetToBlock(eChestBlock.position.x, eChestBlock.position.y, eChestBlock.position.z)
+        if (!goalTo.isEnd(bot.entity.position.floored())) {
+          await bot.pathfinder.goto(goalTo)
+        }
+        await bot.equip(bot.pathfinder.bestHarvestTool(eChestBlock))
+        await bot.dig(eChestBlock)
+        await wait(500)
+      } catch (e) {
+        console.error('Placment error while placing ender chest', e)
+        await wait(500)
+      }
+    }
+  }
 }
 
 async function start () {

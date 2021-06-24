@@ -114,12 +114,14 @@ function inject (bot) {
             faces,
             facing: facing,
             facing3D: is3D,
-            half
+            half,
+            LOS: false
           })
           if (!goal.isEnd(bot.entity.position.floored())) {
             console.log('pathfinding')
             bot.pathfinder.setMovements(movements)
             await bot.pathfinder.goto(goal)
+            console.log('finished pathing')
           }
 
           try {
