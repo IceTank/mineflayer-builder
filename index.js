@@ -41,11 +41,12 @@ function inject (bot) {
 
   async function equipItem (id) {
     await bot.setQuickBarSlot(5)
+    if (bot.heldItem?.type === id) return
     const item = bot.inventory.findInventoryItem(id, null)
     if (!item) {
       throw Error('no_blocks')
     }
-    await bot.equip(item.type, 'hand')
+    await bot.equip(id, 'hand')
   }
 
   bot.builder.equipItem = equipItem
@@ -115,6 +116,7 @@ function inject (bot) {
             facing: facing,
             facing3D: is3D,
             half,
+            range: 3,
             LOS: false
           })
           if (!goal.isEnd(bot.entity.position.floored())) {
@@ -132,7 +134,12 @@ function inject (bot) {
                 const p = new Promise((resolve, reject) => {
                   noMaterialCallback(item, resolve, reject)
                 })
-                await p
+                try {
+                  await p
+                } catch (e) {
+                  errorNoBlocks = item.name
+                  break
+                }
                 continue
               } else {
                 errorNoBlocks = item.name
@@ -171,7 +178,7 @@ function inject (bot) {
           build.removeAction(action)
           console.info('Skipping unreachable action', action)
         } else {
-          console.log(e.name, e)
+          console.log(e?.name, e)
         }
       }
     }
@@ -180,6 +187,9 @@ function inject (bot) {
       bot.chat('Failed to build no blocks left ' + errorNoBlocks)
     } else {
       bot.chat('Finished building')
+      setTimeout(() => {
+        bot.emit('builder_finished')
+      }, 0)
     }
     interruptBuilding = false
     bot.builder.currentBuild = null
