@@ -177,6 +177,9 @@ function inject (bot) {
         if (e?.name === 'NoPath') {
           build.removeAction(action)
           console.info('Skipping unreachable action', action)
+        } else if (e && e.name === 'cancel') {
+          console.info('Canceling build no materials')
+          break
         } else {
           console.log(e?.name, e)
         }
