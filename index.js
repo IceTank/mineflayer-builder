@@ -61,28 +61,6 @@ function inject (bot) {
     await bot.equip(item.type, 'hand')
   }
 
-  async function materialCallback (item, noMaterialCallback) {
-    if (noMaterialCallback && typeof noMaterialCallback === 'function') {
-      const p = new Promise((resolve, reject) => {
-        try {
-          noMaterialCallback(item, (data) => {
-            resolve(data)
-          }, (error) => {
-            reject(error)
-          })
-        } catch (e) {
-          reject(e)
-        }
-      })
-      try {
-        await p
-      } catch (e) {
-        throw new Error(item.name)
-      }
-    }
-    throw new Error(item.name)
-  }
-
   bot.builder.equipItem = equipItem
 
   bot.builder.stop = function () {
@@ -226,7 +204,11 @@ function inject (bot) {
           }
           build.removeAction(action)
         } else if (action.type === 'dig') {
-          await bot.pathfinder.goto(new goals.Goal(action.pos.x, action.pos.y, action.pos))
+          await bot.pathfinder.goto(new goals.GoalGetToBlock(action.pos.x, action.pos.y, action.pos))
+          const blockToBreak = bot.blockAt(action.pos)
+          const bestTool = bot.pathfinder.bestHarvestTool(blockToBreak)
+          if (bestTool) await equipItem(bestTool.type)
+          await bot.dig(bot.blockAt(action.pos))
           build.removeAction(action)
         } else {
           console.error('Unknown action', action)
