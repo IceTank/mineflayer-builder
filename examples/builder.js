@@ -6,7 +6,6 @@ const { pathfinder } = require('mineflayer-pathfinder')
 const mineflayer = require('mineflayer')
 const mineflayerViewer = require('prismarine-viewer').mineflayer
 
-
 const bot = mineflayer.createBot({
   host: process.argv[2] || 'localhost',
   port: parseInt(process.argv[3]) || 25565,
@@ -36,7 +35,7 @@ bot.once('spawn', async () => {
   bot.on('messagestr', (message, messagePosition, jsonMsg) => {
     if (message.includes('start')) {
       start()
-    } 
+    }
   })
   bot.on('chat', async (username, message) => {
     console.info(username, message)
@@ -87,7 +86,7 @@ async function start () {
   bot.builder.build(build)
 }
 
-async function fileExists (path) {  
+async function fileExists (path) {
   try {
     await fs.promises.access(path)
     return true

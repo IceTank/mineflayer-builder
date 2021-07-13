@@ -4,8 +4,8 @@ const interactable = require('./lib/interactable.json')
 
 /**
  * @typedef {object} returnObject Return status object
- * @property {string} status Ether `cancel` or `finished` 
- *  
+ * @property {string} status Ether `cancel` or `finished`
+ *
  */
 
 /**
@@ -110,7 +110,7 @@ function inject (bot) {
    * @param {buildOptions?} options Build options
    * @returns
    */
-  bot.builder.build = async function(build, options = {}) {
+  bot.builder.build = async function (build, options = {}) {
     let buildError
     bot.builder.currentBuild = build
 
@@ -120,7 +120,7 @@ function inject (bot) {
 
     interruptBuilding = false
 
-    function newBuildError(name, data = {}) {
+    function newBuildError (name, data = {}) {
       return {
         error: new Error(name),
         data: data
@@ -128,12 +128,12 @@ function inject (bot) {
     }
 
     /**
-     * 
-     * @param {boolean} failed Failed or succeeded 
+     *
+     * @param {boolean} failed Failed or succeeded
      * @param {object} data Additional data
      * @returns {returnObject}
      */
-    function newReturnObj(failed, data = {}) {
+    function newReturnObj (failed, data = {}) {
       return {
         status: failed ? 'finished' : 'cancel',
         data: data
@@ -247,7 +247,6 @@ function inject (bot) {
     }
 
     if (buildError) {
-      bot.emit('builder_cancel', message)
       bot.builder.currentBuild = null
       if (buildError.message === 'missing_material') {
         return newReturnObj(false, {
