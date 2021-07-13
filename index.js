@@ -192,7 +192,7 @@ function inject (bot) {
           }
 
           try {
-            const amount = bot.inventory.count(id)
+            const amount = bot.inventory.count(item.id)
             if (amount <= materialMin) throw Error('no_blocks')
             await equipItem(item.id) // equip item after pathfinder
           } catch (e) {
