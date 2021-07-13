@@ -2,6 +2,19 @@ const { goals, Movements } = require('mineflayer-pathfinder')
 
 const interactable = require('./lib/interactable.json')
 
+/**
+ * @typedef {object} returnObject Return status object
+ * @property {string} status Ether `cancel` or `finished` 
+ *  
+ */
+
+/**
+ * @typedef {object} buildOptions Build options for `build`
+ * @property {number?} range Default: 3 - Range the bot can place blocks at
+ * @property {boolean?} LOS Default: `true` - If the bot should use line of sight when placing blocks
+ * @property {number?} materialMin Default: 0 - The point at witch build cancels for lack of materials
+ */
+
 function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
 function inject (bot) {
@@ -92,8 +105,13 @@ function inject (bot) {
 
   // /fill ~-20 ~ ~-20 ~20 ~10 ~20 minecraft:air
 
-  bot.builder.build = async (build, noMaterialCallback, options = {}) => {
-    let errorNoBlocks
+  /**
+   * @param {object} build Build to build
+   * @param {buildOptions?} options Build options
+   * @returns
+   */
+  bot.builder.build = async function(build, options = {}) {
+    let buildError
     bot.builder.currentBuild = build
 
     const placementRange = options.range || 3
@@ -101,6 +119,26 @@ function inject (bot) {
     const materialMin = options.materialMin || 0
 
     interruptBuilding = false
+
+    function newBuildError(name, data = {}) {
+      return {
+        error: new Error(name),
+        data: data
+      }
+    }
+
+    /**
+     * 
+     * @param {boolean} failed Failed or succeeded 
+     * @param {object} data Additional data
+     * @returns {returnObject}
+     */
+    function newReturnObj(failed, data = {}) {
+      return {
+        status: failed ? 'finished' : 'cancel',
+        data: data
+      }
+    }
 
     while (build.actions.length > 0) {
       if (interruptBuilding) {
@@ -159,14 +197,10 @@ function inject (bot) {
             await equipItem(item.id) // equip item after pathfinder
           } catch (e) {
             if (e.message === 'no_blocks') {
-              try {
-                await materialCallback(item, noMaterialCallback)
-              } catch (e) {
-                console.info('Throwing error no material')
-                throw Error('cancel')
-              }
-              continue
+              buildError = newBuildError('missing_material', { item })
+              break
             }
+            await wait(100)
             throw e
           }
 
@@ -195,36 +229,38 @@ function inject (bot) {
           await bot.pathfinder.goto(new goals.Goal(action.pos.x, action.pos.y, action.pos))
           build.removeAction(action)
         } else {
+          console.error('Unknown action', action)
           build.removeAction(action)
         }
       } catch (e) {
         if (e?.name === 'NoPath') {
           console.info('Skipping unreachable action', action)
-        } else if (e && (e.name === 'cancel' || e.message === 'cancel')) {
-          console.info('Canceling build no materials')
-          break
         } else if (e?.message.startsWith('No block has been placed')) {
           console.info('Block placement failed')
           console.error(e)
           continue
         } else {
-          console.log(e?.name, e)
+          console.error(e?.name, e)
         }
         build.removeAction(action)
       }
     }
 
-    if (errorNoBlocks) {
-      const message = 'Failed to build no blocks left ' + errorNoBlocks
-      bot.chat(message)
+    if (buildError) {
       bot.emit('builder_cancel', message)
-    } else {
-      bot.chat('Finished building')
-      setTimeout(() => {
-        bot.emit('builder_finished')
-      }, 0)
+      bot.builder.currentBuild = null
+      if (buildError.message === 'missing_material') {
+        return newReturnObj(false, {
+          error: 'missing_material',
+          item: buildError.data.item
+        })
+      }
+      return newReturnObj(false)
     }
+
+    bot.chat('Finished building')
     bot.builder.currentBuild = null
+    return newReturnObj(true)
   }
 }
 
