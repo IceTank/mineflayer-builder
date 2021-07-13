@@ -204,7 +204,7 @@ function inject (bot) {
           }
           build.removeAction(action)
         } else if (action.type === 'dig') {
-          await bot.pathfinder.goto(new goals.GoalGetToBlock(action.pos.x, action.pos.y, action.pos))
+          await bot.pathfinder.goto(new goals.GoalNear(action.pos.x, action.pos.y, action.pos, placementRange))
           const blockToBreak = bot.blockAt(action.pos)
           const bestTool = bot.pathfinder.bestHarvestTool(blockToBreak)
           if (bestTool) await equipItem(bestTool.type)
