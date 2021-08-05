@@ -95,6 +95,7 @@ function inject (bot) {
     const placementRange = options.range || 3
     const placementLOS = 'LOS' in options ? options.LOS : true
     const materialMin = options.materialMin || 0
+    const placeOrderFunc = options.placeSort || null
 
     interruptBuilding = false
 
@@ -118,6 +119,12 @@ function inject (bot) {
       }
     }
 
+    function actionHash(action) {
+      return `${action.pos.x},${action.pos.y},${action.pos.z}`
+    }
+
+    let placeErrors = {}
+
     while (build.actions.length > 0) {
       if (interruptBuilding) {
         interruptBuilding = false
@@ -129,14 +136,19 @@ function inject (bot) {
         console.log('No actions to perform')
         break
       }
-      actions.sort((a, b) => {
-        let dA = a.pos.offset(0.5, 0.5, 0.5).distanceSquared(bot.entity.position)
-        dA += (a.pos.y - bot.entity.position.y) * 100
-        let dB = b.pos.offset(0.5, 0.5, 0.5).distanceSquared(bot.entity.position)
-        dB += (b.pos.y - bot.entity.position.y) * 100
-        return dA - dB
-      })
+      if (placeOrderFunc) {
+        actions.sort(placeOrderFunc)
+      } else {
+        actions.sort((a, b) => {
+          let dA = a.pos.offset(0.5, 0.5, 0.5).distanceSquared(bot.entity.position)
+          dA += (a.pos.y - bot.entity.position.y) * 100
+          let dB = b.pos.offset(0.5, 0.5, 0.5).distanceSquared(bot.entity.position)
+          dB += (b.pos.y - bot.entity.position.y) * 100
+          return dA - dB
+        })
+      }
       const action = actions[0]
+      const hash = actionHash(action)
       console.log('action', action)
 
       try {
@@ -179,6 +191,8 @@ function inject (bot) {
               break
             }
             await wait(100)
+            if (!placeErrors[hash]) placeErrors[hash] = 0
+            placeErrors[hash] += 1
             throw e
           }
 
@@ -220,6 +234,10 @@ function inject (bot) {
         } else if (e?.message.startsWith('No block has been placed')) {
           console.info('Block placement failed')
           console.error(e)
+          if (placeErrors[hash] && placeErrors[hash] > 5) {
+            console.info('Too many failed place attempts removing action')
+            build.removeAction(action)
+          }
           continue
         } else {
           console.error(e?.name, e)
