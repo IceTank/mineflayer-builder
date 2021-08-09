@@ -185,6 +185,7 @@ function inject (bot) {
             const amount = bot.inventory.count(item.id)
             if (amount <= materialMin) throw Error('no_blocks')
             await equipItem(item.id) // equip item after pathfinder
+            await wait(100)
           } catch (e) {
             if (e.message === 'no_blocks') {
               buildError = newBuildError('missing_material', { item })
