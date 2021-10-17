@@ -17,6 +17,10 @@ const interactable = require('./lib/interactable.json')
 
 function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
+/**
+ *
+ * @param {import('mineflayer').Bot & {pathfinder: import('mineflayer-pathfinder').Pathfinder}} bot Bot
+ */
 function inject (bot) {
   if (!bot.pathfinder) {
     throw new Error('pathfinder must be loaded before builder')
@@ -26,12 +30,6 @@ function inject (bot) {
 
   const mcData = require('minecraft-data')(bot.version)
   const Item = require('prismarine-item')(bot.version)
-
-  const movements = new Movements(bot, mcData)
-  // movements.canDig = false
-  movements.digCost = 10
-  movements.maxDropDown = 3
-  bot.pathfinder.searchRadius = 10
 
   bot.builder = {}
 
@@ -92,6 +90,17 @@ function inject (bot) {
     let buildError
     bot.builder.currentBuild = build
 
+    const oldMovements = bot.pathfinder.movements
+    const movements = new Movements(bot, mcData)
+    // movements.canDig = false
+    movements.digCost = 10
+    movements.maxDropDown = 3
+    bot.pathfinder.searchRadius = 10
+
+    const resetMovements = () => {
+      bot.pathfinder.setMovements(oldMovements)
+    }
+
     const placementRange = options.range || 3
     const placementLOS = 'LOS' in options ? options.LOS : true
     const materialMin = options.materialMin || 0
@@ -119,15 +128,16 @@ function inject (bot) {
       }
     }
 
-    function actionHash(action) {
+    function actionHash (action) {
       return `${action.pos.x},${action.pos.y},${action.pos.z}`
     }
 
-    let placeErrors = {}
+    const placeErrors = {}
 
     while (build.actions.length > 0) {
       if (interruptBuilding) {
         interruptBuilding = false
+        resetMovements()
         return
       }
       const actions = build.getAvailableActions()
@@ -250,16 +260,19 @@ function inject (bot) {
     if (buildError) {
       bot.builder.currentBuild = null
       if (buildError.message === 'missing_material') {
+        resetMovements()
         return newReturnObj(false, {
           error: 'missing_material',
           item: buildError.data.item
         })
       }
+      resetMovements()
       return newReturnObj(false)
     }
 
     bot.chat('Finished building')
     bot.builder.currentBuild = null
+    resetMovements()
     return newReturnObj(true)
   }
 }
