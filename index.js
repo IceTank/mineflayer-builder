@@ -2,24 +2,11 @@ const { goals, Movements } = require('mineflayer-pathfinder')
 
 const interactable = require('./lib/interactable.json')
 
-/**
- * @typedef {object} returnObject Return status object
- * @property {string} status Ether `cancel` or `finished`
- *
- */
-
-/**
- * @typedef {object} buildOptions Build options for `build`
- * @property {number?} range Default: 3 - Range the bot can place blocks at
- * @property {boolean?} LOS Default: `true` - If the bot should use line of sight when placing blocks
- * @property {number?} materialMin Default: 0 - The point at witch build cancels for lack of materials
- */
-
 function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
 /**
  *
- * @param {import('mineflayer').Bot & {pathfinder: import('mineflayer-pathfinder').Pathfinder}} bot Bot
+ * @param {import('mineflayer').Bot & {pathfinder: import('mineflayer-pathfinder').Pathfinder} & import('.').Builder} bot Bot
  */
 function inject (bot) {
   if (!bot.pathfinder) {
@@ -79,12 +66,10 @@ function inject (bot) {
     bot.builder.build(bot.builder.currentBuild)
   }
 
-  // /fill ~-20 ~ ~-20 ~20 ~10 ~20 minecraft:air
-
   /**
    * @param {object} build Build to build
-   * @param {buildOptions?} options Build options
-   * @returns
+   * @param {import('.').BuildOptions?} options Build options
+   * @returns {import('mineflayer-builder').BuildReturnObject}
    */
   bot.builder.build = async function (build, options = {}) {
     let buildError
@@ -119,7 +104,7 @@ function inject (bot) {
      *
      * @param {boolean} failed Failed or succeeded
      * @param {object} data Additional data
-     * @returns {returnObject}
+     * @returns {import('mineflayer-builder').BuildReturnObject}
      */
     function newReturnObj (failed, data = {}) {
       return {
