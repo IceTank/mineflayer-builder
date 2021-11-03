@@ -1,7 +1,8 @@
 import { Bot } from "mineflayer";
 import { Item } from "prismarine-item";
 import { Vec3 } from "vec3";
-import Build from "./lib/Build";
+import { Block } from 'prismarine-block'
+import { Schematic } from "prismarine-schematic";
 
 export interface BuildOptions {
   /**@description Default: 3 - Range the bot can place blocks at */
@@ -22,7 +23,7 @@ export interface Action {
 
 export interface BuildReturnObject {
   status: 'finished' | 'cancel',
-  data: object 
+  data: null 
     | {
       error: 'missing_material',
       item: Item
@@ -38,13 +39,36 @@ declare module 'mineflayer-builder' {
     stop: () => void;
     pause: () => void;
     continue: () => void;
-    build: (build: Build, buildOptions: BuildOptions) => Promise<void>;
+    build: (build: Build, buildOptions: BuildOptions) => Promise<BuildReturnObject>;
   }
 
+  export class Build {
+    schematic: Schematic
+    world: World
+    at: Vec3
+    min: Vec3
+    max: Vec3
+    breakTargetShouldBeAir = true
+    breakTargetShouldBeDifferent = true
+    placeTargetIsAir = true
+    /**@todo Not implemented */
+    placeTargetIsReplaceable = true
+
+    blockMatchStrictness: 'same_name' | 'same_state'
+
+    updateActions: () => void;
+    /** @todo Not implemented */
+    updateBlock: (block: Block) => void;
+    getItemForState: (stateId: number) => Item;
+    getFacing: (stateId: number, facing: number) => { facing: number | null, faceDirection: boolean, is3D: boolean }
+    getPossibleDirections: (stateId: number, pos: Vec3) => [Vec3];
+    removeAction: (action: Action) => void;
+    getAvailableActions: () => [Action];
+  }
 }
 
 declare module 'mineflayer' {
-	interface Bot {
+	interface Bot extends Bot {
 		builder: Builder
 	}
 }

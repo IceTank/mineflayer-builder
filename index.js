@@ -5,8 +5,26 @@ const interactable = require('./lib/interactable.json')
 function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
 /**
+ * @param {function} func 
+ * @param {number} timeout 
+ * @param  {...any} args 
+ * @throws
+ * @returns {Promise<void>}
+ */
+async function awaitWithTimeout(func, timeout, ...args) {
+  const timeoutHandle = new Promise((_resolve, reject) => setTimeout(() => reject(new Error('timeout')), timeout))
+  await Promise.race([func(...args), timeoutHandle]) 
+}
+
+/**
+ * @typedef BuildError
+ * @property {Error} error
+ * @property {object} data
+ */
+
+/**
  *
- * @param {import('mineflayer').Bot & {pathfinder: import('mineflayer-pathfinder').Pathfinder} & import('.').Builder} bot Bot
+ * @param {import('mineflayer').Bot & {pathfinder: import('mineflayer-pathfinder').Pathfinder} & import('mineflayer-builder').Builder} bot Bot
  */
 function inject (bot) {
   if (!bot.pathfinder) {
@@ -67,20 +85,35 @@ function inject (bot) {
   }
 
   /**
-   * @param {object} build Build to build
+   * @param {import('mineflayer-builder').Build} build Build to build
    * @param {import('.').BuildOptions?} options Build options
    * @returns {import('mineflayer-builder').BuildReturnObject}
    */
   bot.builder.build = async function (build, options = {}) {
+    /** @type {BuildError} */
     let buildError
     bot.builder.currentBuild = build
 
     const oldMovements = bot.pathfinder.movements
     const movements = new Movements(bot, mcData)
     // movements.canDig = false
-    movements.digCost = 10
+    movements.digCost = 3
     movements.maxDropDown = 3
+    movements.placeCost = 3
+    movements.exclusionAreasPlace.push(function isPlaceExcluded (block) {
+      const schemBlock = build.schematic.getBlock(block.position.minus(build.at))
+      if (!schemBlock || schemBlock.type === 0) return false
+      return true
+    })
+    movements.exclusionAreasBreak.push(function isBreakExcluded (block) {
+      const schemBlock = build.schematic.getBlock(block.position.minus(build.at))
+      if (!schemBlock || schemBlock.type === 0) return false
+      return true
+    })
+
     bot.pathfinder.searchRadius = 10
+
+    bot.pathfinder.setMovements(movements)
 
     const resetMovements = () => {
       bot.pathfinder.setMovements(oldMovements)
@@ -93,6 +126,12 @@ function inject (bot) {
 
     interruptBuilding = false
 
+    /**
+     *
+     * @param {string} name name
+     * @param {object?} data data
+     * @returns {BuildError}
+     */
     function newBuildError (name, data = {}) {
       return {
         error: new Error(name),
@@ -123,7 +162,7 @@ function inject (bot) {
       if (interruptBuilding) {
         interruptBuilding = false
         resetMovements()
-        return
+        return newReturnObj(false)
       }
       const actions = build.getAvailableActions()
       console.log(`${actions.length} available actions`)
@@ -148,6 +187,17 @@ function inject (bot) {
 
       try {
         if (action.type === 'place') {
+          const blockInWorld = bot.blockAt(action.pos)
+          if (blockInWorld.stateId === action.state) {
+            build.removeAction(action)
+            console.info('Got action that wants to place an already placed block', action)
+            continue
+          }
+          if (blockInWorld.stateId !== 0) {
+            build.removeAction(action)
+            console.info('Got action that wants to place a block in a none air block', action)
+            continue
+          }
           const item = build.getItemForState(action.state)
           console.log('Selecting ' + item.displayName)
 
@@ -171,24 +221,35 @@ function inject (bot) {
           })
           if (!goal.isEnd(bot.entity.position.floored())) {
             console.log('pathfinding')
-            bot.pathfinder.setMovements(movements)
-            await bot.pathfinder.goto(goal)
+            // bot.pathfinder.setMovements(movements)
+            try {
+              await awaitWithTimeout(bot.pathfinder.goto, 5000 + 2000 * bot.entity.position.distanceTo(action.pos), goal)
+            } catch (err) {
+              if (err.message === 'timeout') {
+                console.warn('Pathfing timed out removing action', action)
+                build.removeAction(action)
+                continue
+              }
+              throw err
+            }
             console.log('finished pathing')
           }
 
           try {
             const amount = bot.inventory.count(item.id)
-            if (amount <= materialMin) throw Error('no_blocks')
-            await equipItem(item.id) // equip item after pathfinder
-            await wait(100)
+            if (bot.game.gameMode === 'creative') {
+              await equipCreative(item.id)
+            } else {
+              if (amount <= materialMin) throw Error('no_blocks')
+              await equipItem(item.id) // equip item after pathfinder
+              await wait(100)
+            }
           } catch (e) {
             if (e.message === 'no_blocks') {
               buildError = newBuildError('missing_material', { item })
               break
             }
             await wait(100)
-            if (!placeErrors[hash]) placeErrors[hash] = 0
-            placeErrors[hash] += 1
             throw e
           }
 
@@ -214,7 +275,18 @@ function inject (bot) {
           }
           build.removeAction(action)
         } else if (action.type === 'dig') {
-          await bot.pathfinder.goto(new goals.GoalNear(action.pos.x, action.pos.y, action.pos, placementRange))
+          console.info('Going to goal break')
+          try {
+            await awaitWithTimeout(bot.pathfinder.goto, 5000 + 2000 * bot.entity.position.distanceTo(action.pos), new goals.GoalBreakBlock(action.pos.x, action.pos.y, action.pos.z, bot))
+          } catch (err) {
+            if (err.message === 'timeout') {
+              console.warn('Pathfing timed out removing action', action)
+              build.removeAction(action)
+              continue
+            }
+            throw err
+          }
+          console.info('Finished going to goal break')
           const blockToBreak = bot.blockAt(action.pos)
           const bestTool = bot.pathfinder.bestHarvestTool(blockToBreak)
           if (bestTool) await equipItem(bestTool.type)
@@ -230,7 +302,9 @@ function inject (bot) {
         } else if (e?.message.startsWith('No block has been placed')) {
           console.info('Block placement failed')
           console.error(e)
-          if (placeErrors[hash] && placeErrors[hash] > 5) {
+          if (!placeErrors[hash]) placeErrors[hash] = 0
+          placeErrors[hash] += 1
+          if (placeErrors[hash] > 5) {
             console.info('Too many failed place attempts removing action')
             build.removeAction(action)
           }
@@ -244,7 +318,7 @@ function inject (bot) {
 
     if (buildError) {
       bot.builder.currentBuild = null
-      if (buildError.message === 'missing_material') {
+      if (buildError.error.message === 'missing_material') {
         resetMovements()
         return newReturnObj(false, {
           error: 'missing_material',
@@ -255,7 +329,7 @@ function inject (bot) {
       return newReturnObj(false)
     }
 
-    bot.chat('Finished building')
+    // bot.chat('Finished building')
     bot.builder.currentBuild = null
     resetMovements()
     return newReturnObj(true)

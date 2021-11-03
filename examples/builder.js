@@ -21,6 +21,10 @@ function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 bot.once('spawn', async () => {
   mineflayerViewer(bot, { port: 3000 })
 
+  bot.on('goal_updated', (newGoal) => {
+    console.info('Goal updated', newGoal?.constructor)
+  })
+
   bot.on('path_update', (r) => {
     const path = [bot.entity.position.offset(0, 0.5, 0)]
     for (const node of r.path) {
@@ -32,16 +36,11 @@ bot.once('spawn', async () => {
   while (!bot.entity.onGround) {
     await wait(100)
   }
-  bot.on('messagestr', (message, messagePosition, jsonMsg) => {
-    if (message.includes('start')) {
-      start()
-    }
-  })
   bot.on('chat', async (username, message) => {
     console.info(username, message)
     if (message.startsWith('build')) {
       const [, schematicName] = message.split(' ')
-      build(schematicName)
+      build(schematicName || 'smallhouse1')
     } else if (message === 'stop') {
       bot.builder.stop()
     } else if (message === 'pause') {
@@ -63,27 +62,27 @@ async function build (name) {
   const at = bot.entity.position.floored()
   bot.chat('Building at ', at)
   const build = new Build(schematic, bot.world, at)
-  bot.builder.build(build, noMaterial)
-}
-
-async function noMaterial (item, resolve, reject) {
-  console.info('Building interrupted missing', item?.name)
-  reject()
-}
-
-async function start () {
-  bot.chat('/clear')
-  await wait(1000)
-  bot.chat('/give builder dirt')
-  await wait(1000)
-  bot.chat('/fill 187 4 122 209 30 101 air')
-  await wait(1000)
-  bot.chat('/tp 197 4 121')
-  await wait(1000)
-  const at = bot.entity.position.floored()
-  console.log('Building at ', at)
-  const build = new Build(schematic, bot.world, at)
-  bot.builder.build(build)
+  build.breakTargetShouldBeAir = true
+  build.breakTargetShouldBeDifferent = true
+  build.updateActions()
+  let res
+  while (!res || res.data.error === 'missing_material')
+  try {
+    if (res?.data?.error === 'missing_material') {
+      if (bot.inventory.emptySlotCount() <= 1) {
+        bot.chat('/clear')
+        await wait(100)
+        bot.chat(`/give ${bot.username} diamond_pickaxe`)
+        bot.chat(`/give ${bot.username} dirt 64`)
+      }
+      bot.chat(`/give ${bot.username} ${res.data.item.name} 64`)
+      await wait(500)
+    }
+    res = await bot.builder.build(build)
+  } catch (err) {
+    console.info('Builder got error while building', err)
+  }
+  console.info('Builder finished with result', res)
 }
 
 async function fileExists (path) {
