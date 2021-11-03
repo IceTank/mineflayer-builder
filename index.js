@@ -199,7 +199,8 @@ function inject (bot) {
             continue
           }
           const item = build.getItemForState(action.state)
-          console.log('Selecting ' + item.displayName)
+          if (!item) throw new Error('Item for state ' + JSON.stringify(action) + ' returned nullish')
+          console.log('Selecting ' + item?.displayName)
 
           const properties = build.properties[action.state]
           const half = properties.half ? properties.half : properties.type
@@ -308,6 +309,11 @@ function inject (bot) {
             console.info('Too many failed place attempts removing action')
             build.removeAction(action)
           }
+          continue
+        } else if (e?.message.startsWith('must be holding')) { // Item place error
+          continue
+        } else if (e?.message.startsWith('Server rejected transaction')) { // Inventory clicking to fast
+          await wait(200)
           continue
         } else {
           console.error(e?.name, e)
