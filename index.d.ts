@@ -42,12 +42,16 @@ declare module 'mineflayer-builder' {
     build: (build: Build, buildOptions: BuildOptions) => Promise<BuildReturnObject>;
   }
 
+  export type Generator = (pos: Vec3) => Block | null
+
   export class Build {
     schematic: Schematic
     world: World
     at: Vec3
-    min: Vec3
-    max: Vec3
+    min?: Vec3
+    max?: Vec3
+    isDynamic: boolean
+    actions: Action[]
     breakTargetShouldBeAir = true
     breakTargetShouldBeDifferent = true
     placeTargetIsAir = true
@@ -56,6 +60,8 @@ declare module 'mineflayer-builder' {
 
     blockMatchStrictness: 'same_name' | 'same_state'
 
+    generator: Generator
+
     updateActions: () => void;
     /** @todo Not implemented */
     updateBlock: (block: Block) => void;
@@ -63,7 +69,9 @@ declare module 'mineflayer-builder' {
     getFacing: (stateId: number, facing: number) => { facing: number | null, faceDirection: boolean, is3D: boolean }
     getPossibleDirections: (stateId: number, pos: Vec3) => [Vec3];
     removeAction: (action: Action) => void;
-    getAvailableActions: () => [Action];
+    getAvailableActions: () => Action[];
+
+    constructor(input: Schematic | Generator, world: any, at: Vec3, version: string)
   }
 }
 

@@ -100,16 +100,6 @@ function inject (bot) {
     movements.digCost = 3
     movements.maxDropDown = 3
     movements.placeCost = 3
-    movements.exclusionAreasPlace.push(function isPlaceExcluded (block) {
-      const schemBlock = build.schematic.getBlock(block.position.minus(build.at))
-      if (!schemBlock || schemBlock.type === 0) return false
-      return true
-    })
-    movements.exclusionAreasBreak.push(function isBreakExcluded (block) {
-      const schemBlock = build.schematic.getBlock(block.position.minus(build.at))
-      if (!schemBlock || schemBlock.type === 0) return false
-      return true
-    })
 
     bot.pathfinder.searchRadius = 10
 
@@ -158,7 +148,15 @@ function inject (bot) {
 
     const placeErrors = {}
 
-    while (build.actions.length > 0) {
+    while (true) {
+      if (build.actions.length === 0) {
+        if (!build.isDynamic) break // No more actions to do
+        bot.chat('Updating actions')
+        build.updateActions(bot.entity.position.floored())
+        if (build.actions.length === 0) {
+          return newReturnObj(false)
+        }
+      }
       if (interruptBuilding) {
         interruptBuilding = false
         resetMovements()
@@ -193,7 +191,7 @@ function inject (bot) {
             console.info('Got action that wants to place an already placed block', action)
             continue
           }
-          if (blockInWorld.stateId !== 0) {
+          if (blockInWorld.type !== 0) {
             build.removeAction(action)
             console.info('Got action that wants to place a block in a none air block', action)
             continue
