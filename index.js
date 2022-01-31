@@ -149,20 +149,22 @@ function inject (bot) {
     const placeErrors = {}
 
     while (true) {
-      if (build.actions.length === 0) {
-        if (!build.isDynamic) break // No more actions to do
-        bot.chat('Updating actions')
-        build.updateActions(bot.entity.position.floored())
-        if (build.actions.length === 0) {
-          return newReturnObj(false)
-        }
-      }
       if (interruptBuilding) {
         interruptBuilding = false
         resetMovements()
         return newReturnObj(false)
       }
-      const actions = build.getAvailableActions()
+      let actions = build.getAvailableActions()
+      if (actions.length === 0) {
+        if (!build.isDynamic) break // No more actions to do
+        bot.chat('Updating actions')
+        build.updateActions()
+        // build.updateActions(bot.entity.position.floored())
+        actions = build.getAvailableActions()
+        if (actions.length === 0) {
+          return newReturnObj(false)
+        }
+      }
       console.log(`${actions.length} available actions`)
       if (actions.length === 0) {
         console.log('No actions to perform')
