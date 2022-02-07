@@ -66,21 +66,22 @@ async function build (name) {
   build.breakTargetShouldBeDifferent = true
   build.updateActions()
   let res
-  while (!res || res.data.error === 'missing_material')
-  try {
-    if (res?.data?.error === 'missing_material') {
-      if (bot.inventory.emptySlotCount() <= 1) {
-        bot.chat('/clear')
-        await wait(100)
-        bot.chat(`/give ${bot.username} diamond_pickaxe`)
-        bot.chat(`/give ${bot.username} dirt 64`)
+  while (!res || res.data.error === 'missing_material') {
+    try {
+      if (res?.data?.error === 'missing_material') {
+        if (bot.inventory.emptySlotCount() <= 1) {
+          bot.chat('/clear')
+          await wait(100)
+          bot.chat(`/give ${bot.username} diamond_pickaxe`)
+          bot.chat(`/give ${bot.username} dirt 64`)
+        }
+        bot.chat(`/give ${bot.username} ${res.data.item.name} 64`)
+        await wait(500)
       }
-      bot.chat(`/give ${bot.username} ${res.data.item.name} 64`)
-      await wait(500)
+      res = await bot.builder.build(build)
+    } catch (err) {
+      console.info('Builder got error while building', err)
     }
-    res = await bot.builder.build(build)
-  } catch (err) {
-    console.info('Builder got error while building', err)
   }
   console.info('Builder finished with result', res)
 }

@@ -1,19 +1,21 @@
 const { goals, Movements } = require('mineflayer-pathfinder')
 
 const interactable = require('./lib/interactable.json')
+const { v4: uuid } = require('uuid')
 
 function wait (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
 /**
- * @param {function} func 
- * @param {number} timeout 
- * @param  {...any} args 
+ * Executes a function. If timeout is reached returns.
+ * @param {function} func
+ * @param {number} timeout
+ * @param  {...any} args
  * @throws
  * @returns {Promise<void>}
  */
-async function awaitWithTimeout(func, timeout, ...args) {
+async function withTimeout (func, timeout, ...args) {
   const timeoutHandle = new Promise((_resolve, reject) => setTimeout(() => reject(new Error('timeout')), timeout))
-  await Promise.race([func(...args), timeoutHandle]) 
+  await Promise.race([func(...args), timeoutHandle])
 }
 
 /**
@@ -31,13 +33,23 @@ function inject (bot) {
     throw new Error('pathfinder must be loaded before builder')
   }
 
-  let interruptBuilding = false
-
   const mcData = require('minecraft-data')(bot.version)
   const Item = require('prismarine-item')(bot.version)
 
-  bot.builder = {}
+  const Replaceable = new Set()
+  Replaceable.add(mcData.blocksByName.air.id)
+  if (mcData.blocksByName.cave_air) Replaceable.add(mcData.blocksByName.cave_air.id)
+  if (mcData.blocksByName.void_air) Replaceable.add(mcData.blocksByName.void_air.id)
+  if (mcData.blocksByName.tall_grass) Replaceable.add(mcData.blocksByName.tall_grass.id)
+  if (mcData.blocksByName.tallgrass) Replaceable.add(mcData.blocksByName.tallgrass.id)
+  Replaceable.add(mcData.blocksByName.water.id)
+  Replaceable.add(mcData.blocksByName.lava.id)
+  Replaceable.add(mcData.blocksByName.snow.id)
 
+  let currentBuilder = null
+  let interruptBuilding = false
+
+  bot.builder = {}
   bot.builder.currentBuild = null
 
   async function equipCreative (id) {
@@ -61,7 +73,8 @@ function inject (bot) {
     if (!item) {
       throw Error('no_blocks')
     }
-    await bot.equip(item.type, 'hand')
+    await withTimeout(bot.equip, 3000, item.type, 'hand')
+    // await bot.equip(item.type, 'hand')
   }
 
   bot.builder.equipItem = equipItem
@@ -70,7 +83,7 @@ function inject (bot) {
     console.log('Stopped building')
     interruptBuilding = true
     bot.builder.currentBuild = null
-    bot.pathfinder.setGoal(null)
+    bot.pathfinder.stop()
   }
 
   bot.builder.pause = function () {
@@ -90,6 +103,8 @@ function inject (bot) {
    * @returns {import('mineflayer-builder').BuildReturnObject}
    */
   bot.builder.build = async function (build, options = {}) {
+    currentBuilder = uuid()
+    const selfBuilder = currentBuilder
     /** @type {BuildError} */
     let buildError
     bot.builder.currentBuild = build
@@ -102,7 +117,6 @@ function inject (bot) {
     movements.placeCost = 3
 
     bot.pathfinder.searchRadius = 10
-
     bot.pathfinder.setMovements(movements)
 
     const resetMovements = () => {
@@ -130,12 +144,12 @@ function inject (bot) {
     }
 
     /**
-     *
+     * Exits the build function. If build failed data can hold additional information.
      * @param {boolean} failed Failed or succeeded
      * @param {object} data Additional data
      * @returns {import('mineflayer-builder').BuildReturnObject}
      */
-    function newReturnObj (failed, data = {}) {
+    function buildExit (failed, data = {}) {
       return {
         status: failed ? 'finished' : 'cancel',
         data: data
@@ -149,10 +163,11 @@ function inject (bot) {
     const placeErrors = {}
 
     while (true) {
+      if (selfBuilder !== currentBuilder) return
       if (interruptBuilding) {
         interruptBuilding = false
         resetMovements()
-        return newReturnObj(false)
+        return buildExit(false)
       }
       let actions = build.getAvailableActions()
       if (actions.length === 0) {
@@ -162,7 +177,7 @@ function inject (bot) {
         // build.updateActions(bot.entity.position.floored())
         actions = build.getAvailableActions()
         if (actions.length === 0) {
-          return newReturnObj(false)
+          return buildExit(false)
         }
       }
       console.log(`${actions.length} available actions`)
@@ -184,6 +199,16 @@ function inject (bot) {
       const action = actions[0]
       const hash = actionHash(action)
       console.log('action', action)
+
+      if (action.dependsOn) {
+        const blockDepend = bot.blockAt(action.dependsOn)
+        if (!blockDepend) throw new Error('Invalid block to depend on', blockDepend, action.dependsOn)
+        if (!Replaceable.has(blockDepend.type)) {
+          console.info('Removing action as block to depend on is not replaceable', action.dependsOn, blockDepend)
+          build.removeAction(action)
+          continue
+        }
+      }
 
       try {
         if (action.type === 'place') {
@@ -208,7 +233,7 @@ function inject (bot) {
           const faces = build.getPossibleDirections(action.state, action.pos)
           for (const face of faces) {
             const block = bot.blockAt(action.pos.plus(face))
-            console.log(face, action.pos.plus(face), block.name)
+            console.log('Placement data. face:', face, 'into block:', action.pos.plus(face), 'block type:', block.name)
           }
 
           const { facing, is3D } = build.getFacing(action.state, properties.facing)
@@ -224,7 +249,7 @@ function inject (bot) {
             console.log('pathfinding')
             // bot.pathfinder.setMovements(movements)
             try {
-              await awaitWithTimeout(bot.pathfinder.goto, 5000 + 2000 * bot.entity.position.distanceTo(action.pos), goal)
+              await withTimeout(bot.pathfinder.goto, 5000 + 2000 * bot.entity.position.distanceTo(action.pos), goal)
             } catch (err) {
               if (err.message === 'timeout') {
                 console.warn('Pathfing timed out removing action', action)
@@ -258,7 +283,7 @@ function inject (bot) {
           const faceAndRef = goal.getFaceAndRef(bot.entity.position.floored().offset(0.5, 1.6, 0.5))
           if (!faceAndRef) { throw new Error('no face and ref') }
 
-          bot.lookAt(faceAndRef.to, true)
+          await bot.lookAt(faceAndRef.to)
 
           const refBlock = bot.blockAt(faceAndRef.ref)
           const sneak = interactable.indexOf(refBlock.name) > 0
@@ -271,14 +296,14 @@ function inject (bot) {
           const worldState = bot.world.getBlockStateId(action.pos)
           // Does not work for 1.12 as blocks dont have the stateId property
           if (worldState !== action.state) {
-            console.log('expected', properties)
-            console.log('got', worldState)
+            console.log('expected', properties, 'state', action.state)
+            console.log('got state', worldState)
           }
           build.removeAction(action)
         } else if (action.type === 'dig') {
           console.info('Going to goal break')
           try {
-            await awaitWithTimeout(bot.pathfinder.goto, 5000 + 2000 * bot.entity.position.distanceTo(action.pos), new goals.GoalBreakBlock(action.pos.x, action.pos.y, action.pos.z, bot))
+            await withTimeout(bot.pathfinder.goto, 5000 + 2000 * bot.entity.position.distanceTo(action.pos), new goals.GoalBreakBlock(action.pos.x, action.pos.y, action.pos.z, bot))
           } catch (err) {
             if (err.message === 'timeout') {
               console.warn('Pathfing timed out removing action', action)
@@ -290,7 +315,10 @@ function inject (bot) {
           console.info('Finished going to goal break')
           const blockToBreak = bot.blockAt(action.pos)
           const bestTool = bot.pathfinder.bestHarvestTool(blockToBreak)
-          if (bestTool) await equipItem(bestTool.type)
+          if (bestTool) {
+            console.info('Best tool for', blockToBreak.name, bestTool.name)
+            await equipItem(bestTool.type)
+          }
           await bot.dig(bot.blockAt(action.pos))
           build.removeAction(action)
         } else {
@@ -299,7 +327,8 @@ function inject (bot) {
         }
       } catch (e) {
         if (e?.name === 'NoPath') {
-          console.info('Skipping unreachable action', action)
+          console.info('NoPath: Skipping action', action, 'bot position ' + bot.entity.position.floored())
+          return
         } else if (e?.message.startsWith('No block has been placed')) {
           console.info('Block placement failed')
           console.error(e)
@@ -311,8 +340,10 @@ function inject (bot) {
           }
           continue
         } else if (e?.message.startsWith('must be holding')) { // Item place error
+          console.info('Place error', e.message)
           continue
         } else if (e?.message.startsWith('Server rejected transaction')) { // Inventory clicking to fast
+          console.info('Inventory action error', e.message)
           await wait(200)
           continue
         } else {
@@ -326,19 +357,19 @@ function inject (bot) {
       bot.builder.currentBuild = null
       if (buildError.error.message === 'missing_material') {
         resetMovements()
-        return newReturnObj(false, {
+        return buildExit(false, {
           error: 'missing_material',
           item: buildError.data.item
         })
       }
       resetMovements()
-      return newReturnObj(false)
+      return buildExit(false)
     }
 
     // bot.chat('Finished building')
     bot.builder.currentBuild = null
     resetMovements()
-    return newReturnObj(true)
+    return buildExit(true)
   }
 }
 

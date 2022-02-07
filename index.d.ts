@@ -17,7 +17,7 @@ export interface BuildOptions {
 export interface Action {
   type: 'place' | 'dig'
   pos: Vec3
-  state: number
+  state?: number
   dependsOn?: Vec3
 }
 
